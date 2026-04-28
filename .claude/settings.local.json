@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\Downloads\\\\studybuddy-updated\\\\studybuddy-updated\\\\src\\\\pages\" -Force | ForEach-Object { $_.Name })"
+    ]
+  }
+}
