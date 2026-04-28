@@ -10,9 +10,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { MOCK_STUDENTS } from "@/lib/mockSeed";
+import { MOCK_STUDENTS, PSU_STUDENTS } from "@/lib/mockSeed";
+import { COURSE_NAME_BY_ID } from "@/lib/courses";
 
 const MOCK_IDS = new Set(Object.values(MOCK_STUDENTS));
+const PSU_IDS  = new Set(Object.values(PSU_STUDENTS));
 
 const Home = () => {
   const nav = useNavigate();
@@ -34,28 +36,40 @@ const Home = () => {
     loadFilterSummary();
   }, [user, loc.key]);
 
+  const proxMap: Record<string, string> = {
+    same_building: "Same building",
+    "5min_walk":   "5-min walk",
+    anywhere:      "Anywhere on campus",
+  };
+
   const loadFilterSummary = async () => {
     if (!user) return;
 
-    // Fetch course_id and proximity in parallel
+    // Primary: localStorage (written by Filters page on every save — always up to date)
+    const stored = localStorage.getItem(`studybuddy_filters_${user.id}`);
+    if (stored) {
+      try {
+        const { courseName, prox } = JSON.parse(stored);
+        const proxLabel = prox ? (proxMap[prox] ?? prox) : null;
+        if (courseName || proxLabel) {
+          setFilterSummary({ course: courseName ?? "", prox: proxLabel ?? "" });
+          return;
+        }
+      } catch {}
+    }
+
+    // Fallback: DB (for users who set preferences before this change)
     const [{ data: uc }, { data: mp }] = await Promise.all([
       supabase.from("user_courses").select("course_id").eq("user_id", user.id)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("matching_preferences").select("proximity").eq("user_id", user.id).maybeSingle(),
     ]);
 
-    // Resolve the course name with a direct lookup (avoids PostgREST join inference issues)
     let courseName: string | null = null;
     if (uc?.course_id) {
       const { data: c } = await supabase.from("courses").select("course_name").eq("id", uc.course_id).maybeSingle();
-      courseName = c?.course_name ?? null;
+      courseName = c?.course_name ?? COURSE_NAME_BY_ID[uc.course_id] ?? null;
     }
-
-    const proxMap: Record<string, string> = {
-      same_building: "Same building",
-      "5min_walk":   "5-min walk",
-      anywhere:      "Anywhere on campus",
-    };
     const proxLabel = mp?.proximity ? (proxMap[mp.proximity] ?? mp.proximity) : null;
 
     if (courseName || proxLabel) setFilterSummary({ course: courseName ?? "", prox: proxLabel ?? "" });
@@ -64,16 +78,29 @@ const Home = () => {
 
   const loadPartners = async () => {
     if (!user) return;
-    const { data: uc } = await supabase.from("user_courses").select("id").eq("user_id", user.id).limit(1);
-    if (!uc || uc.length === 0) {
-      toast("Choose a course first", {
-        description: "Select what you're studying so we can find the right partners.",
-        action: { label: "Choose Course", onClick: () => nav("/filters") },
-      });
-      return;
+
+    // Check localStorage first, then DB
+    const stored = localStorage.getItem(`studybuddy_filters_${user.id}`);
+    const hasCourse = stored && (() => { try { return !!JSON.parse(stored).courseName; } catch { return false; } })();
+    if (!hasCourse) {
+      const { data: uc } = await supabase.from("user_courses").select("id").eq("user_id", user.id).limit(1);
+      if (!uc || uc.length === 0) {
+        toast("Choose a course first", {
+          description: "Select what you're studying so we can find the right partners.",
+          action: { label: "Choose Course", onClick: () => nav("/filters") },
+        });
+        return;
+      }
     }
-    const { data } = await supabase.from("profiles").select("*").neq("id", user.id).eq("availability_status", true).limit(20);
-    setPartners(data || []);
+    const { data } = await supabase.from("profiles").select("*").neq("id", user.id).eq("availability_status", true).limit(50);
+    // Only show PSU mock students, deduplicated by ID
+    const seen = new Set<string>();
+    const unique = (data || []).filter(p => {
+      if (!PSU_IDS.has(p.id) || seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+    setPartners(unique);
     setShowPartners(true);
   };
 
@@ -98,7 +125,7 @@ const Home = () => {
     });
     toast.success(`Request sent to ${partner.full_name}`);
     loadOutgoing();
-    if (req && MOCK_IDS.has(partner.id)) {
+    if (req && (MOCK_IDS.has(partner.id) || PSU_IDS.has(partner.id))) {
       setTimeout(async () => {
         const { data: sess } = await supabase.from("study_sessions").insert({
           user1_id: user.id, user2_id: partner.id, course_name: req.course_name,

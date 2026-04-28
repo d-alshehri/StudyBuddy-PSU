@@ -1,31 +1,41 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { ArrowLeft, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import { PSU_COURSES } from "@/lib/courses";
 
 const proxOptions = [
-  { id: "same_building", title: "Same building",           sub: "Best for quick meetups" },
-  { id: "5min_walk",     title: "Within 5-minute walk",   sub: "Just across the quad" },
-  { id: "anywhere",      title: "Anywhere on campus",     sub: "Maximum study options" },
+  { id: "same_building", title: "Same building",         sub: "Best for quick meetups" },
+  { id: "5min_walk",     title: "Within 5-minute walk", sub: "Just across the quad" },
+  { id: "anywhere",      title: "Anywhere on campus",   sub: "Maximum study options" },
 ];
 
 const Filters = () => {
   const nav = useNavigate();
   const { user } = useAuth();
-  const [courses, setCourses] = useState<{ id: string; course_name: string }[]>([]);
-  const [course, setCourse] = useState<string>("");
+  const [courseId, setCourseId] = useState("");
+  const [courseSearch, setCourseSearch] = useState("");
   const [prox, setProx] = useState("same_building");
 
   useEffect(() => {
-    // Load available courses
-    supabase.from("courses").select("*").order("course_name").then(({ data }) => setCourses(data || []));
-
-    // Pre-fill with the user's existing preferences
     if (!user) return;
+
+    // Pre-fill from localStorage first (instant, no network)
+    const stored = localStorage.getItem(`studybuddy_filters_${user.id}`);
+    if (stored) {
+      try {
+        const { courseId: sid, prox: sp } = JSON.parse(stored);
+        if (sid && PSU_COURSES.find(c => c.id === sid)) setCourseId(sid);
+        if (sp) setProx(sp);
+        return;
+      } catch {}
+    }
+
+    // Fall back to DB when localStorage is empty
     supabase
       .from("user_courses")
       .select("course_id")
@@ -33,7 +43,10 @@ const Filters = () => {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
-      .then(({ data }) => { if (data?.course_id) setCourse(data.course_id); });
+      .then(({ data }) => {
+        if (data?.course_id && PSU_COURSES.find(c => c.id === data.course_id))
+          setCourseId(data.course_id);
+      });
 
     supabase
       .from("matching_preferences")
@@ -45,20 +58,34 @@ const Filters = () => {
 
   const find = async () => {
     if (user) {
-      await supabase
+      const courseName = PSU_COURSES.find(c => c.id === courseId)?.name ?? "";
+
+      // Persist to localStorage immediately so Home page always reads the latest selection
+      localStorage.setItem(`studybuddy_filters_${user.id}`, JSON.stringify({ courseId, courseName, prox }));
+
+      // DB writes are best-effort — don't block navigation on them
+      supabase
         .from("matching_preferences")
         .upsert({ user_id: user.id, proximity: prox }, { onConflict: "user_id" });
 
-      if (course) {
-        // Replace the previous selection so the home card always shows the latest choice
-        await supabase.from("user_courses").delete().eq("user_id", user.id);
-        await supabase.from("user_courses").insert({ user_id: user.id, course_id: course });
+      if (courseId) {
+        supabase.from("user_courses").delete().eq("user_id", user.id)
+          .then(() => supabase.from("user_courses").insert({ user_id: user.id, course_id: courseId }));
       }
     }
     nav("/home");
   };
 
-  const reset = () => { setCourse(""); setProx("same_building"); };
+  const reset = () => {
+    setCourseId("");
+    setProx("same_building");
+    setCourseSearch("");
+    if (user) localStorage.removeItem(`studybuddy_filters_${user.id}`);
+  };
+
+  const filtered = PSU_COURSES.filter(c =>
+    c.name.toLowerCase().includes(courseSearch.toLowerCase())
+  );
 
   return (
     <AppShell>
@@ -76,16 +103,35 @@ const Filters = () => {
         <div>
           <h2 className="font-bold mb-1">Course</h2>
           <p className="text-sm text-muted-foreground mb-3">Select your current course</p>
-          <Select value={course} onValueChange={setCourse}>
-            <SelectTrigger className="h-12 rounded-2xl">
-              <SelectValue placeholder="Select Course" />
-            </SelectTrigger>
-            <SelectContent>
-              {courses.map(c => (
-                <SelectItem key={c.id} value={c.id}>{c.course_name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search courses…"
+              value={courseSearch}
+              onChange={(e) => setCourseSearch(e.target.value)}
+              className="h-12 rounded-2xl pl-9"
+            />
+          </div>
+
+          <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+            {filtered.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setCourseId(c.id)}
+                className={`w-full text-left px-4 py-3 rounded-2xl border-2 transition text-sm ${
+                  courseId === c.id
+                    ? "border-primary bg-primary/5 font-semibold"
+                    : "border-border bg-card"
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No courses match your search.</p>
+            )}
+          </div>
         </div>
 
         <div>
