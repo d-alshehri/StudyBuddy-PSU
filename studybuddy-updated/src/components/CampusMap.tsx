@@ -25,14 +25,14 @@ const meIcon = new L.DivIcon({
   iconAnchor: [10, 10],
 });
 
-// Prince Sultan University, Riyadh — Al Qurtubah district
-export const PSU_CENTER: [number, number] = [24.6977, 46.6852];
+// Prince Sultan University, Riyadh — Rafha Street
+export const PSU_CENTER: [number, number] = [24.7426, 46.6278];
 
 export const PSU_BUILDINGS: { name: string; pos: [number, number] }[] = [
-  { name: "Building N",    pos: [24.6985, 46.6850] },
-  { name: "Building W",    pos: [24.6977, 46.6843] },
-  { name: "Building S",    pos: [24.6968, 46.6854] },
-  { name: "Main Building", pos: [24.6977, 46.6860] },
+  { name: "Building N",    pos: [24.7435, 46.6276] },
+  { name: "Building W",    pos: [24.7426, 46.6268] },
+  { name: "Building S",    pos: [24.7417, 46.6280] },
+  { name: "Main Building", pos: [24.7426, 46.6287] },
 ];
 
 function Recenter({ pos }: { pos: [number, number] | null }) {

@@ -8,8 +8,8 @@ import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { CampusMap, PSU_BUILDINGS, PSU_CENTER } from "@/components/CampusMap";
 
-// Radius covers the PSU campus footprint (Prince Sultan University, Riyadh)
-const CAMPUS_RADIUS_M = 800;
+// Radius covers the PSU campus footprint — Rafha Street, Riyadh
+const CAMPUS_RADIUS_M = 600;
 
 function distanceMeters(a: [number, number], b: [number, number]) {
   const R = 6371000;
